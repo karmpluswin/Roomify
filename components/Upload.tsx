@@ -1,5 +1,5 @@
 import { CheckCircle2, ImageIcon, UploadIcon } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router";
 import {
   PROGRESS_INTERVAL_MS,
@@ -14,31 +14,66 @@ const Upload = ({ onComplete }: UploadProps) => {
 
   const { isSignedIn } = useOutletContext<AuthContext>();
   const isSignedInRef = useRef(isSignedIn);
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
+  const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   isSignedInRef.current = isSignedIn;
+
+  const clearTimers = () => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+
+    if (redirectTimeoutRef.current) {
+      clearTimeout(redirectTimeoutRef.current);
+      redirectTimeoutRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      clearTimers();
+    };
+  }, []);
 
   const processFile = (selectedFile: File) => {
     if (!isSignedInRef.current) return;
 
+    clearTimers();
     setFile(selectedFile);
     setProgress(0);
 
     const reader = new FileReader();
+
+    reader.onerror = () => {
+        setFile(null)
+        setProgress(0)
+    }
+
     reader.onload = () => {
       if (!isSignedInRef.current || typeof reader.result !== "string") return;
 
       const base64File = reader.result;
-      const progressInterval = setInterval(() => {
+      progressIntervalRef.current = setInterval(() => {
         setProgress((currentProgress) => {
           if (!isSignedInRef.current) {
-            clearInterval(progressInterval);
+            clearTimers();
             return currentProgress;
           }
 
           const nextProgress = Math.min(currentProgress + PROGRESS_STEP, 100);
 
           if (nextProgress === 100) {
-            clearInterval(progressInterval);
-            setTimeout(() => {
+            if (progressIntervalRef.current) {
+              clearInterval(progressIntervalRef.current);
+              progressIntervalRef.current = null;
+            }
+
+            redirectTimeoutRef.current = setTimeout(() => {
+              redirectTimeoutRef.current = null;
               if (isSignedInRef.current) onComplete?.(base64File);
             }, REDIRECT_DELAY_MS);
           }
@@ -73,7 +108,10 @@ const Upload = ({ onComplete }: UploadProps) => {
     if (!isSignedInRef.current) return;
 
     const droppedFile = event.dataTransfer.files[0];
-    if (droppedFile) processFile(droppedFile);
+    const allowedTypes = ['image/jpeg', 'image/png'];
+    if (droppedFile && allowedTypes.includes(droppedFile.type)) {
+        processFile(droppedFile)
+    }
   };
 
   return (
